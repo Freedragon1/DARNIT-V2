@@ -1,0 +1,3 @@
+The object of the game is to place all the picture cards in set positions around the edge of the grid. The Kings go in the four corners. The Queens go in the two central squares on the top and bottom rows of the grid. The Jacks go in the two middle squares on the left and right column. 
+Non-picture cards 1 – 10 can be placed anywhere on the grid.  When the grid is full the dealing deck will lock. You create spaces for further play by selecting any card, or cards that add up to 10. 
+If you reach a stage where no picture card can be placed in a valid position, or that no cards can be removed from the grid – you lose.  However, if you manage to place all picture cards correctly – You win.  Good luck. 
