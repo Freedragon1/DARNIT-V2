@@ -1,73 +1,614 @@
-/* sw.js - Darnit offline cache (simple + reliable) */
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Darnit</title>
 
-const CACHE_NAME = "darnit2-v1";
+<!-- PWA / iOS Home Screen -->
+<meta name="theme-color" content="#0b1220" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Darnit" />
+<link rel="manifest" href="manifest.json" />
+<!-- Put your icon file in repo root or /icons/ and update path -->
+<link rel="apple-touch-icon" href="icons/icon-180.png" />
 
-// Add ONLY files that actually exist in your repo.
-// Adjust paths if your files are in folders.
-const PRECACHE_URLS = [
-  "./",
-  "./index.html",
-  "./manifest.json",
+<style>
+body{
+  font-family:Arial;
+  background:#0b1220;
+  color:white;
+  text-align:center;
+  margin:0;
+  -webkit-user-select:none;
+  user-select:none;
+}
 
-  // Your local images (adjust if different)
-  "./darnitlogo.jpg",
-  "./darnitrules.jpg",
-  "./gridfull3.jpg",
-  "./youlosegrid.jpg",
-  "./youwin2.jpg",
-  "./king.jpg",
-  "./queen.jpg",
-  "./jack.jpg",
+h1{ margin: 14px 0 6px; }
 
-  // Your local sounds (adjust filenames/paths)
-  "./shuffle.mp3",
-  "./sad-trombone.mp3",
-  "./clear.ogg",
-  "./boing.ogg",
-  "./lock.ogg",
-  "./fanfare.mp3",
-  "./crowd.mp3",
+#game{
+  display:flex;
+  justify-content:center;
+  gap:30px;
+  margin-top:14px;
+  padding-bottom: env(safe-area-inset-bottom);
+}
 
-  // Card back + example card (we'll also cache cards dynamically)
-  "./cards/back.png"
-];
+#grid{
+  display:grid;
+  grid-template-columns:repeat(4,120px);
+  grid-template-rows:repeat(4,160px);
+  gap:10px;
+}
 
-// Install: pre-cache core assets
-self.addEventListener("install", (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(PRECACHE_URLS))
-  );
-  self.skipWaiting();
+.cell{
+  width:120px;
+  height:160px;
+  background:#123;
+  border-radius:12px;
+  border:2px solid white;
+  display:flex;
+  justify-content:center;
+  align-items:center;
+  cursor:pointer;
+  position:relative;
+}
+
+.card{
+  width:110px;
+  height:150px;
+  border-radius:10px;
+}
+
+.hint{
+  position:absolute;
+  font-size:64px;
+  font-weight:bold;
+  color:rgba(255,255,255,0.12);
+  pointer-events:none;
+}
+
+#side{
+  width:360px;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+}
+
+#deckTop{
+  width:120px;
+  height:160px;
+  border-radius:12px;
+  border:4px solid lime;
+  box-shadow:0 0 14px lime;
+  cursor:pointer;
+  transition:border-color .4s, box-shadow .4s;
+}
+
+#deckTop.locked{
+  border-color:red;
+  box-shadow:0 0 14px red;
+}
+
+#deckTop.unlocked{
+  border-color:lime;
+  box-shadow:0 0 14px lime;
+}
+
+#counter{
+  margin-top:10px;
+}
+
+#floatImage{
+  margin-top:24px;
+  max-width:360px;
+  max-height:440px;
+  opacity:0;
+  transition:opacity .4s, transform .4s;
+}
+
+/* rules image only */
+#floatImage.rules{
+  transform:translate(2cm, 2cm) scale(1.2);
+}
+
+/* New Game button */
+#newGame{
+  margin-top:4cm;
+  padding:14px 40px;
+  font-size:20px;
+  border:none;
+  border-radius:16px;
+  background:#00aa66;
+  color:white;
+  cursor:pointer;
+}
+
+/* fireworks */
+#fxCanvas{
+  position:fixed;
+  left:0; top:0;
+  width:100vw; height:100vh;
+  pointer-events:none;
+  z-index:9999;
+  display:none;
+}
+</style>
+</head>
+
+<body>
+<h1 id="title">Darnit – Kings in the Corners</h1>
+
+<canvas id="fxCanvas"></canvas>
+
+<div id="game">
+  <div id="grid"></div>
+
+  <div id="side">
+    <img id="deckTop" alt="Deck">
+    <div id="counter"></div>
+    <img id="floatImage" src="img/darnitlogo.jpg" alt="Info">
+    <button id="newGame">New Game</button>
+  </div>
+</div>
+
+<audio id="shuffleSound" src="sfx/shuffle.mp3" preload="auto"></audio>
+
+<script>
+/* ===========================
+   LOCAL ASSET PATHS (EDIT IF NEEDED)
+   =========================== */
+const PATHS = {
+  cards: "cards",  // cards/AS.png ... cards/back.png
+  img:   "img",    // img/darnitlogo.jpg etc
+  sfx:   "sfx"     // sfx/*.mp3 / *.ogg
+};
+
+const IMAGES = {
+  logo:       `${PATHS.img}/darnitlogo.jpg`,
+  rules:      `${PATHS.img}/darnitrules.jpg`,
+  gridFull:   `${PATHS.img}/gridfull3.jpg`,
+  loseGrid:   `${PATHS.img}/youlosegrid.jpg`,
+  kingLose:   `${PATHS.img}/king.jpg`,
+  queenLose:  `${PATHS.img}/queen.jpg`,
+  jackLose:   `${PATHS.img}/jack.jpg`,
+  win:        `${PATHS.img}/youwin2.jpg`,
+};
+
+const backImg = `${PATHS.cards}/back.png`;
+
+/* ===========================
+   SOUNDS (LOCAL)
+   =========================== */
+const clearSound   = new Audio(`${PATHS.sfx}/clear.ogg`);
+const warnSound    = new Audio(`${PATHS.sfx}/boing.ogg`);     // invalid placement / warning
+const lockSound    = new Audio(`${PATHS.sfx}/lock.ogg`);
+const loseSound    = new Audio(`${PATHS.sfx}/lose.mp3`);      // sad trombone
+const fanfareSound = new Audio(`${PATHS.sfx}/fanfare.mp3`);
+const crowdSound   = new Audio(`${PATHS.sfx}/crowd.mp3`);
+
+clearSound.volume   = 0.9;
+warnSound.volume    = 0.9;
+lockSound.volume    = 0.4;
+loseSound.volume    = 0.6;
+fanfareSound.volume = 0.9;
+crowdSound.volume   = 0.6;
+
+/* iPad Safari: only start audio after user gesture */
+let soundsPrimed = false;
+function primeSoundsMinimal(){
+  if(soundsPrimed) return;
+  soundsPrimed = true;
+
+  // Prime ONLY the shuffle sound here to avoid "all sounds at once"
+  // (Other sounds will work later because shuffle priming counts as user gesture)
+  const sh = document.getElementById("shuffleSound");
+  try{
+    sh.currentTime = 0;
+    const p = sh.play();
+    if(p && p.then){
+      p.then(()=>{ sh.pause(); sh.currentTime = 0; }).catch(()=>{});
+    }
+  }catch(e){}
+}
+
+/* ===========================
+   STATE
+   =========================== */
+let grid = [], deck = [], selecting = [];
+let deckLocked = false, deckHidden = true, gameOver = false;
+
+/* ===========================
+   UTIL: CARD IMAGES
+   =========================== */
+function imgFor(card){
+  // card.v is "A", 2..10, "J","Q","K" and card.s is "S","H","D","C"
+  const r = (card.v === 10) ? "0" : card.v;
+  return `${PATHS.cards}/${r}${card.s}.png`;
+}
+function numeric(c){ return (c.v==="A") ? 1 : (typeof c.v==="number" ? c.v : 0); }
+function isFace(c){ return ["J","Q","K"].includes(c.v); }
+function gridFull(){ return grid.every(c=>c!==null); }
+
+/* ===========================
+   FLOAT IMAGE
+   =========================== */
+const floatImg = document.getElementById("floatImage");
+function showImage(src){
+  floatImg.style.opacity = 0;
+  floatImg.className = "";
+  setTimeout(()=>{
+    floatImg.src = src;
+    if(src.endsWith("darnitrules.jpg")) floatImg.classList.add("rules");
+    floatImg.style.opacity = 1;
+  },120);
+}
+
+/* ===========================
+   PLACEMENT RULES
+   =========================== */
+function allowed(i,c){
+  const r = Math.floor(i/4), col = i%4;
+  if(c.v==="K") return (r===0||r===3) && (col===0||col===3);
+  if(c.v==="Q") return (r===0||r===3) && (col===1||col===2);
+  if(c.v==="J") return (r===1||r===2) && (col===0||col===3);
+  return !isFace(c);
+}
+function canPlace(card){
+  return grid.some((g,i)=>g===null && allowed(i,card));
+}
+
+/* ===========================
+   ANY-REMOVE CHECK (full-grid loss)
+   - allows ANY combo of number cards summing to 10 (2 cards, 3 cards, etc)
+   - ignores face cards (never removable)
+   =========================== */
+function hasAnyMove(){
+  const nums = grid.filter(c=>c && !isFace(c)).map(numeric);
+  if(nums.includes(10)) return true;
+
+  function dfs(i,sum){
+    if(sum===10) return true;
+    if(sum>10) return false;
+    for(let j=i;j<nums.length;j++){
+      if(dfs(j+1,sum+nums[j])) return true;
+    }
+    return false;
+  }
+  return dfs(0,0);
+}
+
+/* ===========================
+   WIN CONDITION
+   - no face cards left in deck AND all face cards on grid are valid positions
+   =========================== */
+function winConditionMet(){
+  if(deck.some(isFace)) return false;
+  for(let i=0;i<16;i++){
+    const c = grid[i];
+    if(c && isFace(c) && !allowed(i,c)) return false;
+  }
+  return true;
+}
+
+/* ===========================
+   FIREWORKS
+   =========================== */
+const fxCanvas = document.getElementById("fxCanvas");
+const fxCtx = fxCanvas.getContext("2d");
+
+function resizeFx(){
+  const dpr = devicePixelRatio || 1;
+  fxCanvas.width = innerWidth * dpr;
+  fxCanvas.height = innerHeight * dpr;
+  fxCtx.setTransform(dpr,0,0,dpr,0,0);
+}
+window.addEventListener("resize", resizeFx);
+
+function startFireworks(ms=2600){
+  resizeFx();
+  fxCanvas.style.display = "block";
+  let parts = [], start = performance.now();
+
+  function burst(){
+    const x = Math.random()*innerWidth;
+    const y = Math.random()*innerHeight*0.42;
+    for(let i=0;i<90;i++){
+      const a = Math.random()*Math.PI*2;
+      const s = Math.random()*6+1;
+      parts.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:80,h:Math.random()*360});
+    }
+  }
+
+  burst(); burst();
+
+  function step(t){
+    fxCtx.clearRect(0,0,innerWidth,innerHeight);
+    parts.forEach(p=>{
+      p.x+=p.vx; p.y+=p.vy; p.vy+=0.05; p.life--;
+      fxCtx.fillStyle = `hsla(${p.h},90%,60%,${p.life/80})`;
+      fxCtx.beginPath();
+      fxCtx.arc(p.x,p.y,2.3,0,Math.PI*2);
+      fxCtx.fill();
+    });
+    parts = parts.filter(p=>p.life>0);
+
+    if(t-start<ms || parts.length){
+      requestAnimationFrame(step);
+    }else{
+      fxCanvas.style.display = "none";
+    }
+  }
+  requestAnimationFrame(step);
+}
+
+/* ===========================
+   END STATES
+   =========================== */
+function loseWithDelay(img){
+  if(gameOver) return;
+  gameOver = true;
+  setTimeout(()=>{
+    showImage(img);
+    try{ loseSound.currentTime=0; }catch(e){}
+    loseSound.play().catch(()=>{});
+  },1000);
+}
+
+function winWithDrama(){
+  if(gameOver) return;
+  gameOver = true;
+  setTimeout(()=>{
+    showImage(IMAGES.win);
+    startFireworks(3000);
+
+    try{ fanfareSound.currentTime=0; }catch(e){}
+    try{ crowdSound.currentTime=0; }catch(e){}
+    fanfareSound.play().catch(()=>{});
+    setTimeout(()=>crowdSound.play().catch(()=>{}),600);
+  },900);
+}
+
+/* ===========================
+   FACE LOSS (ONLY when top deck card is visible)
+   - This must NOT trigger during full-grid lock (deckHidden=true)
+   =========================== */
+function checkImmediateFaceLoss(){
+  if(gameOver || deckLocked || deckHidden || !deck.length) return;
+  if(gridFull()) return; // if grid is full, top card should be hidden anyway
+  const c = deck[deck.length-1];
+  if(isFace(c) && !canPlace(c)){
+    // One-second delay + show K/Q/J image + trombone
+    warnSound.play().catch(()=>{});
+    const img = (c.v==="K") ? IMAGES.kingLose : (c.v==="Q" ? IMAGES.queenLose : IMAGES.jackLose);
+    loseWithDelay(img);
+  }
+}
+
+/* ===========================
+   CLICK CELL
+   =========================== */
+function clickCell(i){
+  if(gameOver) return;
+
+  // Deal placement (only if deck is visible and unlocked)
+  if(!grid[i] && !deckHidden && !deckLocked){
+    const card = deck.pop();
+
+    if(!allowed(i,card)){
+      // invalid placement
+      warnSound.currentTime=0;
+      warnSound.play().catch(()=>{});
+      deck.push(card);
+      return;
+    }
+
+    // Place card
+    grid[i] = card;
+    selecting = [];
+    render(); // show the placed card immediately
+
+    // Win immediately if completed
+    if(winConditionMet()){
+      winWithDrama();
+      return;
+    }
+
+    // If placing this card filled the grid:
+    if(gridFull()){
+      // lock deck + hide top card immediately
+      deckLocked = true;
+      deckHidden = true;
+      lockSound.currentTime=0;
+      lockSound.play().catch(()=>{});
+      render(); // IMPORTANT: hides deck card immediately
+
+      // If grid full completed win, win overrides full-grid handling
+      if(winConditionMet()){
+        winWithDrama();
+        return;
+      }
+
+      // Check removals. If none possible => YOU LOSE GRID
+      if(!hasAnyMove()){
+        loseWithDelay(IMAGES.loseGrid);
+        return;
+      }
+
+      // Otherwise show grid full prompt image
+      showImage(IMAGES.gridFull);
+      return;
+    }
+
+    // If game continues, and top card is visible, check face loss
+    checkImmediateFaceLoss();
+    return;
+  }
+
+  // Removal phase (deckLocked=true)
+  if(!deckLocked) return;
+
+  // Clicking an empty cell resets current selection (your requested tweak)
+  if(!grid[i]){
+    selecting = [];
+    render();
+    return;
+  }
+
+  const c = grid[i];
+
+  // never remove picture cards
+  if(isFace(c)) return;
+
+  // remove single 10
+  if(numeric(c) === 10){
+    grid[i] = null;
+    selecting = [];
+    clearSound.currentTime=0;
+    clearSound.play().catch(()=>{});
+    render();
+    return;
+  }
+
+  // multi-card selection
+  if(selecting.includes(i)){
+    selecting = selecting.filter(x=>x!==i);
+  }else{
+    selecting.push(i);
+  }
+
+  const sum = selecting.reduce((s,k)=>s + numeric(grid[k]), 0);
+
+  if(sum === 10){
+    selecting.forEach(k=>grid[k]=null);
+    selecting = [];
+    clearSound.currentTime=0;
+    clearSound.play().catch(()=>{});
+  }else if(sum > 10){
+    selecting = [];
+  }
+
+  render();
+}
+
+/* ===========================
+   DECK CLICK (unlock after removals)
+   - only works if deckLocked and grid not full (must have at least one space)
+   =========================== */
+const deckTop = document.getElementById("deckTop");
+deckTop.addEventListener("click", ()=>{
+  if(gameOver) return;
+  if(!deckLocked) return;
+  if(gridFull()) return; // must have at least one space
+
+  deckLocked = false;
+  deckHidden = false;
+  selecting = [];
+  showImage(IMAGES.logo);
+  render();
+  checkImmediateFaceLoss();
 });
 
-// Activate: cleanup old caches
-self.addEventListener("activate", (event) => {
-  event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.map((k) => (k === CACHE_NAME ? null : caches.delete(k))))
-    )
-  );
-  self.clients.claim();
+/* ===========================
+   NEW GAME
+   =========================== */
+const newGameBtn = document.getElementById("newGame");
+newGameBtn.addEventListener("click", ()=>{
+  // user gesture: prime iPad audio (shuffle only)
+  primeSoundsMinimal();
+
+  // build deck
+  const vals = ["A",2,3,4,5,6,7,8,9,10,"J","Q","K"];
+  const suits = ["S","H","D","C"];
+  deck = [];
+  suits.forEach(s => vals.forEach(v => deck.push({v,s})));
+  deck.sort(()=>Math.random()-0.5);
+
+  grid = Array(16).fill(null);
+  selecting = [];
+  deckLocked = false;
+  deckHidden = true;   // hide top card while shuffle plays
+  gameOver = false;
+
+  showImage(IMAGES.rules);
+  render();
+
+  // shuffle audio only (no other sounds)
+  const sh = document.getElementById("shuffleSound");
+  try{ sh.currentTime=0; }catch(e){}
+  sh.play().catch(()=>{});
+
+  sh.onended = ()=>{
+    deckHidden = false;  // reveal top card after shuffle ends
+    render();
+    checkImmediateFaceLoss();
+  };
 });
 
-// Fetch: cache-first for same-origin requests (your GitHub Pages files)
-self.addEventListener("fetch", (event) => {
-  const req = event.request;
-  const url = new URL(req.url);
+/* ===========================
+   RENDER
+   =========================== */
+const gridDiv = document.getElementById("grid");
+const counter = document.getElementById("counter");
 
-  // Only handle same-origin (your site). Let external URLs pass through.
-  if (url.origin !== self.location.origin) return;
+function hintFor(i){
+  const r=Math.floor(i/4), c=i%4;
+  if((r===0||r===3)&&(c===0||c===3)) return "K";
+  if((r===0||r===3)&&(c===1||c===2)) return "Q";
+  if((r===1||r===2)&&(c===0||c===3)) return "J";
+  return null;
+}
 
-  event.respondWith(
-    caches.match(req).then((cached) => {
-      if (cached) return cached;
+function render(){
+  gridDiv.innerHTML = "";
 
-      return fetch(req).then((res) => {
-        // Save a copy to cache (so card images get cached after first use)
-        const copy = res.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(req, copy));
-        return res;
-      }).catch(() => cached);
-    })
-  );
-});
+  grid.forEach((c,i)=>{
+    const d = document.createElement("div");
+    d.className = "cell";
+
+    if(c){
+      const img = document.createElement("img");
+      img.src = imgFor(c);
+      img.className = "card";
+      d.appendChild(img);
+    }else{
+      const h = hintFor(i);
+      if(h){
+        const s = document.createElement("div");
+        s.className = "hint";
+        s.textContent = h;
+        d.appendChild(s);
+      }
+    }
+
+    d.addEventListener("click", ()=>clickCell(i));
+    gridDiv.appendChild(d);
+  });
+
+  counter.textContent = "Cards remaining: " + deck.length;
+
+  deckTop.classList.remove("locked","unlocked");
+  deckTop.classList.add(deckLocked ? "locked" : "unlocked");
+
+  // hide top card if deckHidden OR no deck
+  deckTop.src = (deckHidden || !deck.length) ? backImg : imgFor(deck[deck.length-1]);
+
+  // Face-loss only when top card visible and game is active
+  checkImmediateFaceLoss();
+}
+
+// initial render (shows empty grid + logo + deck back)
+render();
+
+/* ===========================
+   SERVICE WORKER REGISTER
+   =========================== */
+if("serviceWorker" in navigator){
+  window.addEventListener("load", ()=>{
+    navigator.serviceWorker.register("./sw.js").catch(()=>{});
+  });
+}
+</script>
+</body>
+</html>
