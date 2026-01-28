@@ -1,0 +1,8 @@
+{
+  "name": "Darnit",
+  "short_name": "Darnit",
+  "start_url": "./?pwa=1",
+  "display": "standalone",
+  "background_color": "#0b1220",
+  "theme_color": "#0b1220"
+}
