@@ -1,50 +1,60 @@
-const CACHE_NAME = "darnit-v2-001";
+/* sw.js - Darnit offline cache (GitHub Pages safe) */
 
-/* Build the full pack URLs based on your naming scheme */
-function buildCardUrls(){
-  const suits = ["S","H","D","C"];
-  const vals  = ["A","2","3","4","5","6","7","8","9","0","J","Q","K"]; // 10 is 0
-  const urls = ["cards/back.png"];
-  for (const s of suits){
-    for (const v of vals){
-      urls.push(`cards/${v}${s}.png`);
-    }
-  }
-  return urls;
-}
+const CACHE_NAME = "darnit-v2-cache-v1";
 
-const CORE_ASSETS = [
+// Core files (must exist)
+const CORE = [
   "./",
-  "index.html",
-  "manifest.json",
-  "sw.js",
+  "./index.html",
+  "./manifest.json",
+  "./sw.js",
 
   // UI images
-  "darnitlogo.jpg",
-  "darnitrules3.jpg",   // change to darnitrules.jpg if that’s your file
-  "gridfull3.jpg",
-  "youlosegrid.jpg",
-  "youwin2.jpg",
-  "king.jpg",
-  "queen.jpg",
-  "jack.jpg",
+  "./darnitlogo.jpg",
+  "./darnitrules3.jpg",
+  "./gridfull3.jpg",
+  "./youlosegrid.jpg",
+  "./youwin2.jpg",
+  "./king.jpg",
+  "./queen.jpg",
+  "./jack.jpg",
 
   // sounds
-  "shuffle.mp3",
-  "lose.mp3",
-  "lock.mp3",
-  "fanfare.mp3",
-  "crowd.mp3",
-  "boing.ogg",
-  "clear.ogg",
+  "./shuffle.mp3",
+  "./clear.ogg",
+  "./boing.ogg",
+  "./lock.mp3",
+  "./lose.mp3",
+  "./fanfare.mp3",
+  "./crowd.mp3",
 
-  ...buildCardUrls()
+  // card back
+  "./cards/back.png",
 ];
+
+// Build full deck list: A,2-9,0,J,Q,K x S,H,D,C
+const VALUES = ["A","2","3","4","5","6","7","8","9","0","J","Q","K"];
+const SUITS  = ["S","H","D","C"];
+const CARD_FILES = [];
+for (const v of VALUES) for (const s of SUITS) CARD_FILES.push(`./cards/${v}${s}.png`);
 
 self.addEventListener("install", (event) => {
   event.waitUntil((async () => {
     const cache = await caches.open(CACHE_NAME);
-    await cache.addAll(CORE_ASSETS);
+
+    // Cache CORE strictly, but don’t fail install if *one* file is missing:
+    // (this avoids “no cache storage detected” from a single typo)
+    const results = await Promise.allSettled(
+      [...CORE, ...CARD_FILES].map(async (url) => {
+        const req = new Request(url, { cache: "reload" });
+        const res = await fetch(req);
+        if (!res.ok) throw new Error(`Failed ${url}: ${res.status}`);
+        await cache.put(req, res);
+      })
+    );
+
+    // Optional: you can inspect failures by opening DevTools > Application > Service Workers
+    // We still activate even if a few files were missing.
     self.skipWaiting();
   })());
 });
@@ -52,35 +62,28 @@ self.addEventListener("install", (event) => {
 self.addEventListener("activate", (event) => {
   event.waitUntil((async () => {
     const keys = await caches.keys();
-    await Promise.all(keys.map(k => (k !== CACHE_NAME) ? caches.delete(k) : null));
+    await Promise.all(keys.map(k => (k === CACHE_NAME ? null : caches.delete(k))));
     self.clients.claim();
   })());
 });
 
-/* Cache-first for same-origin files (instant offline) */
+// Cache-first for same-origin GET requests
 self.addEventListener("fetch", (event) => {
   const req = event.request;
-
-  // only handle GET
   if (req.method !== "GET") return;
+
+  const url = new URL(req.url);
+
+  // Only handle requests from our own origin (GitHub Pages)
+  if (url.origin !== self.location.origin) return;
 
   event.respondWith((async () => {
     const cached = await caches.match(req);
     if (cached) return cached;
 
-    try{
-      const fresh = await fetch(req);
-      // store a copy for later
-      const cache = await caches.open(CACHE_NAME);
-      cache.put(req, fresh.clone());
-      return fresh;
-    }catch(e){
-      // fallback: if navigation offline, serve index
-      if (req.mode === "navigate") {
-        const cache = await caches.open(CACHE_NAME);
-        return (await cache.match("index.html")) || Response.error();
-      }
-      return Response.error();
-    }
+    const res = await fetch(req);
+    const cache = await caches.open(CACHE_NAME);
+    cache.put(req, res.clone()).catch(()=>{});
+    return res;
   })());
 });
