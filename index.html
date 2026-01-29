@@ -528,21 +528,22 @@ function render(){
 
 render();
 </script>
-  <script>
+ <script>
   if ("serviceWorker" in navigator) {
-    window.addEventListener("load", () => {
-      navigator.serviceWorker.register("./sw.js", { scope: "./" }).catch(()=>{});
-    });
-  }
-</script>
-<script>
-  if ("serviceWorker" in navigator) {
-    window.addEventListener("load", () => {
-      navigator.serviceWorker.register("./sw.js", { scope: "./" })
-        .catch(err => console.log("SW register failed:", err));
-    });
-  }
-</script>
+    window.addEventListener("load", async () => {
+      try {
+        const reg = await navigator.serviceWorker.register("./sw.js", { scope: "./" });
+        console.log("SW registered:", reg.scope);
 
-</body>
-</html>
+        // This tells you whether the page is actually controlled yet
+        console.log("SW controller now:", !!navigator.serviceWorker.controller);
+
+        // After the SW runs install, the cache should exist (we can check from the page)
+        const keys = await caches.keys();
+        console.log("Cache keys:", keys);
+      } catch (err) {
+        console.log("SW register failed:", err);
+      }
+    });
+  }
+</script>
