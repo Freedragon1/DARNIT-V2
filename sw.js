@@ -1,109 +1,86 @@
-/* sw.js */
-const CACHE_NAME = "darnit-v2-cache-1";
+const CACHE_NAME = "darnit-v2-001";
 
-const ASSETS = [
+/* Build the full pack URLs based on your naming scheme */
+function buildCardUrls(){
+  const suits = ["S","H","D","C"];
+  const vals  = ["A","2","3","4","5","6","7","8","9","0","J","Q","K"]; // 10 is 0
+  const urls = ["cards/back.png"];
+  for (const s of suits){
+    for (const v of vals){
+      urls.push(`cards/${v}${s}.png`);
+    }
+  }
+  return urls;
+}
+
+const CORE_ASSETS = [
   "./",
-  "./index.html",
-  "./manifest.json",
+  "index.html",
+  "manifest.json",
+  "sw.js",
 
   // UI images
-  "./darnitlogo.jpg",
-  "./darnitrules.jpg",
-  "./gridfull3.jpg",
-  "./youlosegrid.jpg",
-  "./youwin2.jpg",
-  "./king.jpg",
-  "./queen.jpg",
-  "./jack.jpg",
+  "darnitlogo.jpg",
+  "darnitrules3.jpg",   // change to darnitrules.jpg if that’s your file
+  "gridfull3.jpg",
+  "youlosegrid.jpg",
+  "youwin2.jpg",
+  "king.jpg",
+  "queen.jpg",
+  "jack.jpg",
 
-  // Sounds (update names to match your repo exactly)
-  "./shuffle.mp3",
-  "./lose.mp3",
-  "./fanfare.mp3",
-  "./crowd.mp3",
-  "./lock.mp3",
-  "./clear.ogg",
-  "./boing.ogg",
+  // sounds
+  "shuffle.mp3",
+  "lose.mp3",
+  "lock.mp3",
+  "fanfare.mp3",
+  "crowd.mp3",
+  "boing.ogg",
+  "clear.ogg",
 
-  // Cards folder (IMPORTANT: you must list all 53 files you use)
-  "./cards/back.png",
-
-  // Examples – you must include all card pngs present:
-  "./cards/AS.png",
-  "./cards/2S.png",
-  "./cards/3S.png",
-  "./cards/4S.png",
-  "./cards/5S.png",
-  "./cards/6S.png",
-  "./cards/7S.png",
-  "./cards/8S.png",
-  "./cards/9S.png",
-  "./cards/0S.png",
-  "./cards/JS.png",
-  "./cards/QS.png",
-  "./cards/KS.png",
-
-  "./cards/AH.png",
-  "./cards/2H.png",
-  "./cards/3H.png",
-  "./cards/4H.png",
-  "./cards/5H.png",
-  "./cards/6H.png",
-  "./cards/7H.png",
-  "./cards/8H.png",
-  "./cards/9H.png",
-  "./cards/0H.png",
-  "./cards/JH.png",
-  "./cards/QH.png",
-  "./cards/KH.png",
-
-  "./cards/AD.png",
-  "./cards/2D.png",
-  "./cards/3D.png",
-  "./cards/4D.png",
-  "./cards/5D.png",
-  "./cards/6D.png",
-  "./cards/7D.png",
-  "./cards/8D.png",
-  "./cards/9D.png",
-  "./cards/0D.png",
-  "./cards/JD.png",
-  "./cards/QD.png",
-  "./cards/KD.png",
-
-  "./cards/AC.png",
-  "./cards/2C.png",
-  "./cards/3C.png",
-  "./cards/4C.png",
-  "./cards/5C.png",
-  "./cards/6C.png",
-  "./cards/7C.png",
-  "./cards/8C.png",
-  "./cards/9C.png",
-  "./cards/0C.png",
-  "./cards/JC.png",
-  "./cards/QC.png",
-  "./cards/KC.png",
+  ...buildCardUrls()
 ];
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then(cache => cache.addAll(ASSETS))
-  );
-  self.skipWaiting();
+  event.waitUntil((async () => {
+    const cache = await caches.open(CACHE_NAME);
+    await cache.addAll(CORE_ASSETS);
+    self.skipWaiting();
+  })());
 });
 
 self.addEventListener("activate", (event) => {
-  event.waitUntil(
-    caches.keys().then(keys =>
-      Promise.all(keys.map(k => (k === CACHE_NAME ? null : caches.delete(k))))
-    )
-  );
-  self.clients.claim();
+  event.waitUntil((async () => {
+    const keys = await caches.keys();
+    await Promise.all(keys.map(k => (k !== CACHE_NAME) ? caches.delete(k) : null));
+    self.clients.claim();
+  })());
 });
 
+/* Cache-first for same-origin files (instant offline) */
 self.addEventListener("fetch", (event) => {
-  event.respondWith(
-    caches.match(event.request).then(cached => cached || fetch(event.request))
-  );
+  const req = event.request;
+
+  // only handle GET
+  if (req.method !== "GET") return;
+
+  event.respondWith((async () => {
+    const cached = await caches.match(req);
+    if (cached) return cached;
+
+    try{
+      const fresh = await fetch(req);
+      // store a copy for later
+      const cache = await caches.open(CACHE_NAME);
+      cache.put(req, fresh.clone());
+      return fresh;
+    }catch(e){
+      // fallback: if navigation offline, serve index
+      if (req.mode === "navigate") {
+        const cache = await caches.open(CACHE_NAME);
+        return (await cache.match("index.html")) || Response.error();
+      }
+      return Response.error();
+    }
+  })());
 });
