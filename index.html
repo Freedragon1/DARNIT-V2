@@ -535,6 +535,14 @@ render();
     });
   }
 </script>
+<script>
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("./sw.js", { scope: "./" })
+        .catch(err => console.log("SW register failed:", err));
+    });
+  }
+</script>
 
 </body>
 </html>
