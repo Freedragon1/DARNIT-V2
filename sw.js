@@ -1,89 +1,125 @@
-/* sw.js - Darnit offline cache (GitHub Pages safe) */
+/* sw.js — Darnit V2 robust offline cache for GitHub Pages */
 
-const CACHE_NAME = "darnit-v2-cache-v1";
+const VERSION = "darnit-v2-2026-01-29";
+const CACHE_NAME = `darnit-cache-${VERSION}`;
 
-// Core files (must exist)
-const CORE = [
+// Core files in repo root you want available offline immediately
+const CORE_ASSETS = [
   "./",
   "./index.html",
   "./manifest.json",
-  "./sw.js",
 
-  // UI images
+  // your local images in repo root
   "./darnitlogo.jpg",
   "./darnitrules3.jpg",
   "./gridfull3.jpg",
-  "./youlosegrid.jpg",
   "./youwin2.jpg",
+  "./youlosegrid.jpg",
   "./king.jpg",
   "./queen.jpg",
   "./jack.jpg",
 
-  // sounds
+  // your local audio files in repo root (adjust names if yours differ)
   "./shuffle.mp3",
-  "./clear.ogg",
-  "./boing.ogg",
-  "./lock.mp3",
   "./lose.mp3",
   "./fanfare.mp3",
   "./crowd.mp3",
+  "./boing.ogg",
+  "./clear.ogg",
+  "./lock.mp3",
 
-  // card back
+  // deck back inside /cards
   "./cards/back.png",
 ];
 
-// Build full deck list: A,2-9,0,J,Q,K x S,H,D,C
-const VALUES = ["A","2","3","4","5","6","7","8","9","0","J","Q","K"];
-const SUITS  = ["S","H","D","C"];
-const CARD_FILES = [];
-for (const v of VALUES) for (const s of SUITS) CARD_FILES.push(`./cards/${v}${s}.png`);
+// Build the list of all 52 card PNGs in ./cards/
+function buildDeckAssetList() {
+  const suits = ["S", "H", "D", "C"];
+  const values = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "0", "J", "Q", "K"];
+  const list = [];
+
+  for (const s of suits) {
+    for (const v of values) {
+      list.push(`./cards/${v}${s}.png`);
+    }
+  }
+  return list;
+}
+
+// Cache a list, but NEVER fail the install just because one item 404s.
+// (This is the main reason Cache Storage sometimes never appears.)
+async function cacheAllSafely(cache, urls) {
+  const results = await Promise.allSettled(
+    urls.map(async (url) => {
+      try {
+        const res = await fetch(url, { cache: "no-store" });
+        if (res.ok) await cache.put(url, res);
+      } catch (_) {
+        // ignore
+      }
+    })
+  );
+  return results;
+}
 
 self.addEventListener("install", (event) => {
   event.waitUntil((async () => {
     const cache = await caches.open(CACHE_NAME);
 
-    // Cache CORE strictly, but don’t fail install if *one* file is missing:
-    // (this avoids “no cache storage detected” from a single typo)
-    const results = await Promise.allSettled(
-      [...CORE, ...CARD_FILES].map(async (url) => {
-        const req = new Request(url, { cache: "reload" });
-        const res = await fetch(req);
-        if (!res.ok) throw new Error(`Failed ${url}: ${res.status}`);
-        await cache.put(req, res);
-      })
-    );
+    // Cache core + full deck
+    const deck = buildDeckAssetList();
+    await cacheAllSafely(cache, CORE_ASSETS.concat(deck));
 
-    // Optional: you can inspect failures by opening DevTools > Application > Service Workers
-    // We still activate even if a few files were missing.
     self.skipWaiting();
   })());
 });
 
 self.addEventListener("activate", (event) => {
   event.waitUntil((async () => {
+    // delete older caches
     const keys = await caches.keys();
-    await Promise.all(keys.map(k => (k === CACHE_NAME ? null : caches.delete(k))));
-    self.clients.claim();
+    await Promise.all(keys.map((k) => (k.startsWith("darnit-cache-") && k !== CACHE_NAME) ? caches.delete(k) : null));
+
+    await self.clients.claim();
   })());
 });
 
-// Cache-first for same-origin GET requests
+// Cache-first for same-origin requests; network fallback; offline fallback to index.html for navigation
 self.addEventListener("fetch", (event) => {
   const req = event.request;
-  if (req.method !== "GET") return;
-
   const url = new URL(req.url);
 
-  // Only handle requests from our own origin (GitHub Pages)
+  // Only handle same-origin (your GitHub Pages site)
   if (url.origin !== self.location.origin) return;
 
   event.respondWith((async () => {
-    const cached = await caches.match(req);
+    const cache = await caches.open(CACHE_NAME);
+
+    // For page navigations, try network then fall back to cached index.html
+    if (req.mode === "navigate") {
+      try {
+        const fresh = await fetch(req);
+        // update cache copy of index
+        cache.put("./index.html", fresh.clone()).catch(()=>{});
+        return fresh;
+      } catch (_) {
+        return (await cache.match("./index.html")) || Response.error();
+      }
+    }
+
+    // For everything else: cache-first
+    const cached = await cache.match(req);
     if (cached) return cached;
 
-    const res = await fetch(req);
-    const cache = await caches.open(CACHE_NAME);
-    cache.put(req, res.clone()).catch(()=>{});
-    return res;
+    try {
+      const fresh = await fetch(req);
+      // cache successful GETs for future offline use
+      if (req.method === "GET" && fresh && fresh.ok) {
+        cache.put(req, fresh.clone()).catch(()=>{});
+      }
+      return fresh;
+    } catch (_) {
+      return cached || Response.error();
+    }
   })());
 });
