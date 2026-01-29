@@ -1,12 +1,11 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>Darnit</title>
 
 <link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#0b1220">
 
 <style>
 body{
@@ -80,7 +79,14 @@ body{
   box-shadow:0 0 14px red;
 }
 
-#counter{ margin-top:10px; }
+#deckTop.unlocked{
+  border-color:lime;
+  box-shadow:0 0 14px lime;
+}
+
+#counter{
+  margin-top:10px;
+}
 
 #floatImage{
   margin-top:24px;
@@ -126,92 +132,94 @@ body{
   <div id="grid"></div>
 
   <div id="side">
-    <img id="deckTop" alt="deck">
+    <img id="deckTop" alt="Deck">
     <div id="counter"></div>
-    <img id="floatImage" src="darnitlogo.jpg" alt="info">
+    <img id="floatImage" src="darnitlogo.jpg" alt="Info">
     <button id="newGame">New Game</button>
   </div>
 </div>
 
-<audio id="shuffleSound" src="shuffle.mp3" preload="auto"></audio>
-
 <script>
-/* ---------------- ELEMENTS ---------------- */
-const gridDiv  = document.getElementById("grid");
-const deckTop  = document.getElementById("deckTop");
-const counter  = document.getElementById("counter");
-const newGame  = document.getElementById("newGame");
-const floatImg = document.getElementById("floatImage");
-const shuffleSound = document.getElementById("shuffleSound");
+// ---------------- SERVICE WORKER ----------------
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("./sw.js", { scope: "./" }).catch(()=>{});
+  });
+}
 
-/* ---------------- SOUNDS (LOCAL FILES) ---------------- */
-const clearSound  = new Audio("clear.ogg");
-const warnSound   = new Audio("boing.ogg");    // invalid placement boing
-const lockSound   = new Audio("lock.mp3");
-const loseSound   = new Audio("lose.mp3");     // sad trombone
-const fanfareSound= new Audio("fanfare.mp3");
-const crowdSound  = new Audio("crowd.mp3");
+// ---------------- ELEMENTS ----------------
+const gridDiv   = document.getElementById("grid");
+const deckTop   = document.getElementById("deckTop");
+const counter   = document.getElementById("counter");
+const newGame   = document.getElementById("newGame");
+const floatImg  = document.getElementById("floatImage");
 
-clearSound.volume   = 0.9;
-warnSound.volume    = 0.9;
-lockSound.volume    = 0.55;
-loseSound.volume    = 0.75;
-fanfareSound.volume = 0.95;
-crowdSound.volume   = 0.65;
+// ---------------- LOCAL ASSETS ----------------
+const backImg = "cards/back.png";
 
-/* iPad/Safari: prime audio on first user gesture */
-let soundsPrimed=false;
+// sounds (LOCAL)
+const clearSound   = new Audio("clear.ogg");
+const warnSound    = new Audio("boing.ogg");
+const lockSound    = new Audio("lock.mp3");
+const loseSound    = new Audio("lose.mp3");
+const shuffleSound = new Audio("shuffle.mp3");
+const fanfareSound = new Audio("fanfare.mp3");
+const crowdSound   = new Audio("crowd.mp3");
+
+clearSound.volume = 0.9;
+lockSound.volume  = 0.4;
+loseSound.volume  = 0.7;
+shuffleSound.volume = 0.9;
+fanfareSound.volume = 0.9;
+crowdSound.volume   = 0.6;
+
+// ---- Prime audio (silent) so iPad allows later playback ----
+let soundsPrimed = false;
 function primeSounds(){
   if(soundsPrimed) return;
-  soundsPrimed=true;
+  soundsPrimed = true;
 
-  const sounds=[clearSound,warnSound,lockSound,loseSound,fanfareSound,crowdSound,shuffleSound];
-  const vols=sounds.map(s=>s.volume ?? 1);
-  sounds.forEach(s=>{ try{ s.volume=0; }catch(e){} });
+  const sounds=[clearSound,warnSound,lockSound,loseSound,shuffleSound,fanfareSound,crowdSound];
 
-  sounds.forEach(s=>{
+  // mute everything while "touch-priming"
+  sounds.forEach(s => { s.muted = true; s.currentTime = 0; });
+
+  sounds.forEach(s => {
     try{
-      s.currentTime=0;
-      const p=s.play();
+      const p = s.play();
       if(p && p.then){
-        p.then(()=>{ s.pause(); s.currentTime=0; }).catch(()=>{});
+        p.then(()=>{ s.pause(); s.currentTime = 0; }).catch(()=>{});
       }
     }catch(e){}
   });
 
-  setTimeout(()=>sounds.forEach((s,i)=>{ try{ s.volume=vols[i]; }catch(e){} }), 200);
+  setTimeout(()=>sounds.forEach(s=>{ s.muted=false; s.currentTime=0; }), 120);
 }
 
-/* ---------------- STATE ---------------- */
+// ---------------- GAME STATE ----------------
 let grid=[], deck=[], selecting=[];
 let deckLocked=false, deckHidden=true, gameOver=false;
 
-/* ---------------- IMAGES (LOCAL CARDS) ---------------- */
-const backImg="cards/back.png";
-
-/* deck codes in your /cards folder: AS.png, 0H.png, QD.png etc */
-function codeForCard(c){
-  const v = (c.v===10) ? "0" : c.v; // ten is "0"
-  return `${v}${c.s}`;
-}
-function imgFor(c){
-  return `cards/${codeForCard(c)}.png`;
-}
-function numeric(c){ return c.v==="A"?1 : (typeof c.v==="number" ? c.v : 0); }
+// ---------------- HELPERS ----------------
 function isFace(c){ return ["J","Q","K"].includes(c.v); }
+function numeric(c){ return c.v==="A" ? 1 : (typeof c.v==="number" ? c.v : 0); }
 
-/* ---------------- FLOAT IMAGE ---------------- */
-function showImage(src){
-  floatImg.style.opacity=0;
-  floatImg.className="";
-  setTimeout(()=>{
-    floatImg.src=src;
-    if(src==="darnitrules3.jpg" || src==="darnitrules.jpg") floatImg.classList.add("rules");
-    floatImg.style.opacity=1;
-  },120);
+function imgFor(c){
+  const v = (c.v===10) ? "0" : c.v; // 10 is "0" in filenames
+  return `cards/${v}${c.s}.png`;
 }
 
-/* ---------------- RULES ---------------- */
+function showImage(src){
+  floatImg.style.opacity = 0;
+  floatImg.className = "";
+  setTimeout(()=>{
+    floatImg.src = src;
+    if(src === "darnitrules3.jpg") floatImg.classList.add("rules");
+    floatImg.style.opacity = 1;
+  }, 120);
+}
+
+// ---------------- PLACEMENT RULES ----------------
 function allowed(i,c){
   const r=Math.floor(i/4), col=i%4;
   if(c.v==="K") return (r===0||r===3)&&(col===0||col===3);
@@ -222,9 +230,11 @@ function allowed(i,c){
 function canPlace(card){
   return grid.some((g,i)=>g===null && allowed(i,card));
 }
-function gridFull(){ return grid.every(c=>c!==null); }
+function gridFull(){
+  return grid.every(c=>c!==null);
+}
 
-/* "any removable combo adds to 10" (any size combination) */
+// ---------------- MOVE CHECK (sum to 10 possible?) ----------------
 function hasAnyMove(){
   const nums = grid.filter(c=>c && !isFace(c)).map(numeric);
   if(nums.includes(10)) return true;
@@ -240,9 +250,9 @@ function hasAnyMove(){
   return dfs(0,0);
 }
 
-/* win check: no face cards left in deck AND all face cards on grid are in valid squares */
+// ---------------- WIN CONDITION ----------------
 function winConditionMet(){
-  if(deck.some(isFace)) return false;
+  if(deck.some(isFace)) return false; // still face cards in deck
   for(let i=0;i<16;i++){
     const c=grid[i];
     if(c && isFace(c) && !allowed(i,c)) return false;
@@ -250,13 +260,13 @@ function winConditionMet(){
   return true;
 }
 
-/* ---------------- FIREWORKS ---------------- */
+// ---------------- FIREWORKS ----------------
 const fxCanvas=document.getElementById("fxCanvas");
 const fxCtx=fxCanvas.getContext("2d");
 
 function resizeFx(){
-  fxCanvas.width = innerWidth * devicePixelRatio;
-  fxCanvas.height = innerHeight * devicePixelRatio;
+  fxCanvas.width=innerWidth*devicePixelRatio;
+  fxCanvas.height=innerHeight*devicePixelRatio;
   fxCtx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);
 }
 window.addEventListener("resize", resizeFx);
@@ -267,11 +277,9 @@ function startFireworks(ms=2600){
   let parts=[], start=performance.now();
 
   function burst(){
-    const x=Math.random()*innerWidth;
-    const y=Math.random()*innerHeight*0.4;
+    const x=Math.random()*innerWidth, y=Math.random()*innerHeight*0.4;
     for(let i=0;i<90;i++){
-      const a=Math.random()*Math.PI*2;
-      const s=Math.random()*6+1;
+      const a=Math.random()*Math.PI*2, s=Math.random()*6+1;
       parts.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:80,h:Math.random()*360});
     }
   }
@@ -286,61 +294,59 @@ function startFireworks(ms=2600){
     });
     parts = parts.filter(p=>p.life>0);
 
-    if(t-start < ms || parts.length){
+    if(t-start<ms || parts.length){
       requestAnimationFrame(step);
-    }else{
+    } else {
       fxCanvas.style.display="none";
     }
   }
   requestAnimationFrame(step);
 }
 
-/* ---------------- END STATES ---------------- */
+// ---------------- END STATES ----------------
+function loseWithDelay(img){
+  if(gameOver) return;
+  gameOver=true;
+  setTimeout(()=>{
+    showImage(img);
+    try{ loseSound.currentTime=0; }catch(e){}
+    loseSound.play().catch(()=>{});
+  }, 1000);
+}
+
 function winWithDrama(){
   if(gameOver) return;
   gameOver=true;
   setTimeout(()=>{
     showImage("youwin2.jpg");
     startFireworks();
-    fanfareSound.currentTime=0;
-    crowdSound.currentTime=0;
+
+    try{ fanfareSound.currentTime=0; crowdSound.currentTime=0; }catch(e){}
     fanfareSound.play().catch(()=>{});
     setTimeout(()=>crowdSound.play().catch(()=>{}), 600);
   }, 900);
 }
 
-function loseWithDelay(img){
-  if(gameOver) return;
-  gameOver=true;
-  setTimeout(()=>{
-    showImage(img);
-    loseSound.currentTime=0;
-    loseSound.play().catch(()=>{});
-  }, 1000);
-}
-
-/* Face-card instant loss: ONLY when deck is visible, unlocked, and grid not full */
+// picture-card instant loss (only when top card visible)
 function checkImmediateFaceLoss(){
   if(gameOver || deckLocked || deckHidden || !deck.length || gridFull()) return;
   const c = deck[deck.length-1];
   if(isFace(c) && !canPlace(c)){
-    // optional warning boing first (you liked it)
-    warnSound.currentTime=0;
     warnSound.play().catch(()=>{});
-    // after 1s we show jack/queen/king jpg + trombone
-    loseWithDelay(c.v==="K" ? "king.jpg" : c.v==="Q" ? "queen.jpg" : "jack.jpg");
+    const img = (c.v==="K") ? "king.jpg" : (c.v==="Q") ? "queen.jpg" : "jack.jpg";
+    loseWithDelay(img);
   }
 }
 
-/* ---------------- CLICK CELL ---------------- */
+// ---------------- CLICK CELL ----------------
 function clickCell(i){
   if(gameOver) return;
 
-  // Placement phase
+  // DEALING PHASE (deck unlocked/visible)
   if(!grid[i] && !deckHidden && !deckLocked){
     const card = deck.pop();
+
     if(!allowed(i,card)){
-      warnSound.currentTime=0;
       warnSound.play().catch(()=>{});
       deck.push(card);
       return;
@@ -348,39 +354,46 @@ function clickCell(i){
 
     grid[i]=card;
     selecting=[];
-    render(); // show the placed card immediately
+    render();
 
-    // win can happen immediately after a placement
-    if(winConditionMet()){ winWithDrama(); return; }
+    // if that placement completes win, show win (and you get to SEE full grid)
+    if(winConditionMet()){
+      winWithDrama();
+      return;
+    }
 
-    // grid just became full -> lock deck + hide top card immediately
+    // if grid becomes full, lock deck + hide top card immediately
     if(gridFull()){
       deckLocked=true;
       deckHidden=true;
-      lockSound.currentTime=0;
       lockSound.play().catch(()=>{});
-      render(); // IMPORTANT: hides top card immediately
+      render(); // ensure top card hidden NOW
 
-      // if the full grid is actually a win, win takes precedence
-      if(winConditionMet()){ winWithDrama(); return; }
+      // win check again (full grid might have just completed picture layout)
+      if(winConditionMet()){
+        winWithDrama();
+        return;
+      }
 
-      // forced-loss: no removable combos on the FULL grid
-      if(!hasAnyMove()){ loseWithDelay("youlosegrid.jpg"); return; }
+      // if no removable cards, lose
+      if(!hasAnyMove()){
+        loseWithDelay("youlosegrid.jpg");
+        return;
+      }
 
-      // otherwise show "grid full" prompt image
       showImage("gridfull3.jpg");
       return;
     }
 
-    // if not full, then we may need immediate face-loss check for the newly revealed top card
+    // otherwise check picture-card loss (top card visible)
     checkImmediateFaceLoss();
     return;
   }
 
-  // Removal phase
+  // REMOVAL PHASE (deck locked)
   if(!deckLocked) return;
 
-  // Clicking an empty (cleared) square resets selection sum (your request)
+  // your requested reset: clicking a blank cleared square resets selection
   if(!grid[i]){
     selecting=[];
     render();
@@ -388,39 +401,42 @@ function clickCell(i){
   }
 
   const c = grid[i];
-  if(isFace(c)) return; // picture cards cannot be removed
+  if(isFace(c)) return; // picture cards are never removable
 
-  // Single 10 removal
+  // single 10 removal
   if(numeric(c)===10){
     grid[i]=null;
     selecting=[];
-    clearSound.currentTime=0;
     clearSound.play().catch(()=>{});
     render();
     return;
   }
 
-  // Multi-card selection
-  selecting.includes(i) ? selecting=selecting.filter(x=>x!==i) : selecting.push(i);
-  const sum = selecting.reduce((s,k)=>s + numeric(grid[k]), 0);
+  // multi-select removal
+  if(selecting.includes(i)){
+    selecting = selecting.filter(x=>x!==i);
+  } else {
+    selecting.push(i);
+  }
+
+  const sum = selecting.reduce((s,k)=>s+numeric(grid[k]),0);
 
   if(sum===10){
     selecting.forEach(k=>grid[k]=null);
     selecting=[];
-    clearSound.currentTime=0;
     clearSound.play().catch(()=>{});
-  }else if(sum>10){
+  } else if(sum>10){
     selecting=[];
   }
 
   render();
 }
 
-/* ---------------- DECK CLICK ---------------- */
+// ---------------- DECK CLICK ----------------
 deckTop.onclick = ()=>{
   if(gameOver) return;
   if(!deckLocked) return;
-  if(gridFull()) return; // must have at least one free space
+  if(gridFull()) return; // must have at least one empty square
 
   deckLocked=false;
   deckHidden=false;
@@ -430,9 +446,9 @@ deckTop.onclick = ()=>{
   checkImmediateFaceLoss();
 };
 
-/* ---------------- NEW GAME ---------------- */
+// ---------------- NEW GAME ----------------
 newGame.onclick = ()=>{
-  // user gesture -> allow audio immediately on iPad
+  // user gesture: prime (silent), but ONLY play shuffle audibly
   primeSounds();
 
   const vals=["A",2,3,4,5,6,7,8,9,10,"J","Q","K"];
@@ -447,19 +463,21 @@ newGame.onclick = ()=>{
   deckHidden=true;
   gameOver=false;
 
-  showImage("darnitrules3.jpg"); // (use darnitrules.jpg if that’s your file)
+  showImage("darnitrules3.jpg");
   render();
 
-  shuffleSound.currentTime=0;
+  // only shuffle sound at start
+  try{ shuffleSound.currentTime=0; }catch(e){}
   shuffleSound.play().catch(()=>{});
-  shuffleSound.onended=()=>{
+
+  shuffleSound.onended = ()=>{
     deckHidden=false;
     render();
     checkImmediateFaceLoss();
   };
 };
 
-/* ---------------- RENDER ---------------- */
+// ---------------- RENDER ----------------
 function hintFor(i){
   const r=Math.floor(i/4), c=i%4;
   if((r===0||r===3)&&(c===0||c===3)) return "K";
@@ -480,7 +498,7 @@ function render(){
       img.src=imgFor(c);
       img.className="card";
       d.appendChild(img);
-    }else{
+    } else {
       const h=hintFor(i);
       if(h){
         const s=document.createElement("div");
@@ -496,22 +514,10 @@ function render(){
 
   counter.textContent="Cards remaining: "+deck.length;
 
-  deckTop.className = deckLocked ? "locked" : "";
+  deckTop.className = deckLocked ? "locked" : "unlocked";
   deckTop.src = (deckHidden || !deck.length) ? backImg : imgFor(deck[deck.length-1]);
 
-  // only check face-loss when it makes sense
   checkImmediateFaceLoss();
-}
-
-/* ---------------- SERVICE WORKER REGISTER ---------------- */
-if("serviceWorker" in navigator){
-  window.addEventListener("load", async ()=>{
-    try{
-      await navigator.serviceWorker.register("./sw.js", { scope: "./" });
-    }catch(e){
-      console.log("SW register failed:", e);
-    }
-  });
 }
 
 render();
