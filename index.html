@@ -141,11 +141,14 @@ body{
 
 <script>
 // ---------------- SERVICE WORKER ----------------
+<script>
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("./sw.js", { scope: "./" }).catch(()=>{});
+    navigator.serviceWorker.register("./sw.js").catch(() => {});
   });
 }
+</script>
+
 
 // ---------------- ELEMENTS ----------------
 const gridDiv   = document.getElementById("grid");
