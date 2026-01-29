@@ -1,11 +1,13 @@
 {
   "name": "Darnit",
   "short_name": "Darnit",
-  "start_url": "./",
+  "start_url": "./index.html",
+  "scope": "./",
   "display": "standalone",
   "background_color": "#0b1220",
   "theme_color": "#0b1220",
   "icons": [
+    { "src": "darnitlogo.jpg", "sizes": "192x192", "type": "image/jpeg" },
     { "src": "darnitlogo.jpg", "sizes": "512x512", "type": "image/jpeg" }
   ]
 }
