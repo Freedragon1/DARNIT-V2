@@ -1,64 +1,90 @@
-// sw.js — DARNIT-V2 offline cache (robust)
-const VERSION = "darnit-v2-3";
+// sw.js — full precache for DARNIT-V2 (GitHub Pages safe)
+const VERSION = "darnit-v2-4";
 const STATIC_CACHE = `static-${VERSION}`;
+const BASE = "/DARNIT-V2/";
 
-// Keep this small + only local files that definitely exist
+// Build full deck file list (matches your naming scheme: AS.png, 0H.png, QD.png, etc.)
+const CARD_VALUES = ["A","2","3","4","5","6","7","8","9","0","J","Q","K"];
+const SUITS = ["S","H","D","C"];
+const CARD_FILES = [];
+for (const v of CARD_VALUES) {
+  for (const s of SUITS) {
+    CARD_FILES.push(`${BASE}cards/${v}${s}.png`);
+  }
+}
+// Deck back (adjust if yours is named differently)
+CARD_FILES.push(`${BASE}cards/back.png`);
+
+// List your local assets here (only files that truly exist in the repo root)
+const ASSETS = [
+  `${BASE}index.html`,
+  `${BASE}manifest.json`,
+
+  // images used by the game
+  `${BASE}darnitlogo.jpg`,
+  `${BASE}darnitrules3.jpg`,
+  `${BASE}gridfull3.jpg`,
+  `${BASE}youlosegrid.jpg`,
+  `${BASE}youwin2.jpg`,
+  `${BASE}jack.jpg`,
+  `${BASE}queen.jpg`,
+  `${BASE}king.jpg`,
+
+  // sounds (match your *actual* filenames)
+  `${BASE}shuffle.mp3`,
+  `${BASE}lose.mp3`,
+  `${BASE}fanfare.mp3`,
+  `${BASE}crowd.mp3`,
+  `${BASE}boing.ogg`,
+  `${BASE}clear.ogg`,
+  `${BASE}lock.mp3`,
+];
+
 const PRECACHE = [
-  "./",
-  "./index.html",
-  "./manifest.json"
+  `${BASE}`,          // important for GitHub Pages
+  ...ASSETS,
+  ...CARD_FILES,
 ];
 
 self.addEventListener("install", (event) => {
-  event.waitUntil((async () => {
-    const cache = await caches.open(STATIC_CACHE);
-
-    // Add files one-by-one so ONE failure doesn't kill install
-    await Promise.allSettled(
-      PRECACHE.map((url) => cache.add(url))
-    );
-
-    await self.skipWaiting();
-  })());
+  event.waitUntil(
+    caches.open(STATIC_CACHE).then((cache) => cache.addAll(PRECACHE))
+  );
+  self.skipWaiting();
 });
 
 self.addEventListener("activate", (event) => {
   event.waitUntil((async () => {
     const keys = await caches.keys();
-    await Promise.all(keys.map((k) => (k === STATIC_CACHE ? null : caches.delete(k))));
+    await Promise.all(keys.map(k => (k === STATIC_CACHE ? null : caches.delete(k))));
     await self.clients.claim();
   })());
 });
 
+// Cache-first for same-origin requests, with network fallback.
+// Navigation falls back to cached index.html when offline.
 self.addEventListener("fetch", (event) => {
   const req = event.request;
   const url = new URL(req.url);
 
-  // Only handle requests for THIS origin
   if (url.origin !== self.location.origin) return;
-
-  // Never intercept the service worker script itself
-  if (url.pathname.endsWith("/sw.js") || url.pathname.endsWith("sw.js")) return;
+  if (url.pathname.endsWith("/sw.js")) return; // don't intercept itself
 
   event.respondWith((async () => {
-    // Navigation: network first, fallback to cached index
     if (req.mode === "navigate") {
       try {
-        const fresh = await fetch(req);
-        const cache = await caches.open(STATIC_CACHE);
-        cache.put("./index.html", fresh.clone());
-        return fresh;
+        return await fetch(req);
       } catch {
-        return (await caches.match("./index.html")) || new Response("Offline", { status: 503 });
+        return (await caches.match(`${BASE}index.html`)) || new Response("Offline", { status: 503 });
       }
     }
 
-    // Other files: cache-first, then network
     const cached = await caches.match(req);
     if (cached) return cached;
 
     try {
-      return await fetch(req);
+      const fresh = await fetch(req);
+      return fresh;
     } catch {
       return new Response("", { status: 504 });
     }
