@@ -140,17 +140,6 @@ body{
 </div>
 
 <script>
-// ---------------- SERVICE WORKER ----------------
-<script>
-<script>
-if ("serviceWorker" in navigator) {
-  window.addEventListener("load", () => {
-    navigator.serviceWorker.register("./sw.js").catch(() => {});
-  });
-}
-</script>
-
-
 // ---------------- ELEMENTS ----------------
 const gridDiv   = document.getElementById("grid");
 const deckTop   = document.getElementById("deckTop");
@@ -346,7 +335,7 @@ function checkImmediateFaceLoss(){
 function clickCell(i){
   if(gameOver) return;
 
-  // DEALING PHASE (deck unlocked/visible)
+  // DEALING PHASE
   if(!grid[i] && !deckHidden && !deckLocked){
     const card = deck.pop();
 
@@ -360,26 +349,22 @@ function clickCell(i){
     selecting=[];
     render();
 
-    // if that placement completes win, show win (and you get to SEE full grid)
     if(winConditionMet()){
       winWithDrama();
       return;
     }
 
-    // if grid becomes full, lock deck + hide top card immediately
     if(gridFull()){
       deckLocked=true;
       deckHidden=true;
       lockSound.play().catch(()=>{});
-      render(); // ensure top card hidden NOW
+      render(); // hide top card NOW
 
-      // win check again (full grid might have just completed picture layout)
       if(winConditionMet()){
         winWithDrama();
         return;
       }
 
-      // if no removable cards, lose
       if(!hasAnyMove()){
         loseWithDelay("youlosegrid.jpg");
         return;
@@ -389,15 +374,14 @@ function clickCell(i){
       return;
     }
 
-    // otherwise check picture-card loss (top card visible)
     checkImmediateFaceLoss();
     return;
   }
 
-  // REMOVAL PHASE (deck locked)
+  // REMOVAL PHASE
   if(!deckLocked) return;
 
-  // your requested reset: clicking a blank cleared square resets selection
+  // reset calc if click blank
   if(!grid[i]){
     selecting=[];
     render();
@@ -405,9 +389,8 @@ function clickCell(i){
   }
 
   const c = grid[i];
-  if(isFace(c)) return; // picture cards are never removable
+  if(isFace(c)) return;
 
-  // single 10 removal
   if(numeric(c)===10){
     grid[i]=null;
     selecting=[];
@@ -416,7 +399,6 @@ function clickCell(i){
     return;
   }
 
-  // multi-select removal
   if(selecting.includes(i)){
     selecting = selecting.filter(x=>x!==i);
   } else {
@@ -440,7 +422,7 @@ function clickCell(i){
 deckTop.onclick = ()=>{
   if(gameOver) return;
   if(!deckLocked) return;
-  if(gridFull()) return; // must have at least one empty square
+  if(gridFull()) return;
 
   deckLocked=false;
   deckHidden=false;
@@ -452,7 +434,7 @@ deckTop.onclick = ()=>{
 
 // ---------------- NEW GAME ----------------
 newGame.onclick = ()=>{
-  // user gesture: prime (silent), but ONLY play shuffle audibly
+  // user gesture: prime silently, but only shuffle is audible
   primeSounds();
 
   const vals=["A",2,3,4,5,6,7,8,9,10,"J","Q","K"];
@@ -470,7 +452,6 @@ newGame.onclick = ()=>{
   showImage("darnitrules3.jpg");
   render();
 
-  // only shuffle sound at start
   try{ shuffleSound.currentTime=0; }catch(e){}
   shuffleSound.play().catch(()=>{});
 
@@ -525,6 +506,9 @@ function render(){
 }
 
 render();
+</script>
+
+<!-- ✅ SERVICE WORKER REGISTER (exactly once, outside the game script) -->
 <script>
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
@@ -532,5 +516,6 @@ if ("serviceWorker" in navigator) {
   });
 }
 </script>
+
 </body>
 </html>
