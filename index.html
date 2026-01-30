@@ -510,11 +510,16 @@ render();
 
 <!-- ✅ SERVICE WORKER REGISTER (exactly once, outside the game script) -->
 <script>
+<script>
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("./sw.js").catch(console.log);
+    navigator.serviceWorker.register("/DARNIT-V2/sw.js")
+      .then(r => console.log("SW ok:", r.scope))
+      .catch(e => console.log("SW failed:", e));
   });
 }
+</script>
+
 </script>
 
 </body>
