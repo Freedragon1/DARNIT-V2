@@ -1,25 +1,26 @@
-// sw.js — MINIMAL TEST VERSION
+// sw.js — MINIMAL TEST VERSION (GitHub Pages)
 const CACHE = "darnit-test-1";
+const BASE = "/DARNIT-V2/";
 
-self.addEventListener("install", event => {
+self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE).then(cache =>
+    caches.open(CACHE).then((cache) =>
       cache.addAll([
-        "/DARNIT-V2/",
-        "/DARNIT-V2/index.html",
-        "/DARNIT-V2/manifest.json"
+        BASE,
+        BASE + "index.html",
+        BASE + "manifest.json",
       ])
     )
   );
   self.skipWaiting();
 });
 
-self.addEventListener("activate", event => {
+self.addEventListener("activate", (event) => {
   event.waitUntil(self.clients.claim());
 });
 
-self.addEventListener("fetch", event => {
+self.addEventListener("fetch", (event) => {
   event.respondWith(
-    caches.match(event.request).then(r => r || fetch(event.request))
+    caches.match(event.request).then((r) => r || fetch(event.request))
   );
 });
