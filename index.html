@@ -160,8 +160,9 @@ const fanfareSound = new Audio("fanfare.mp3");
 const crowdSound   = new Audio("crowd.mp3");
 
 clearSound.volume = 0.9;
+warnSound.volume  = 0.9;
 lockSound.volume  = 0.4;
-loseSound.volume  = 0.7;
+loseSound.volume  = 0.75;
 shuffleSound.volume = 0.9;
 fanfareSound.volume = 0.9;
 crowdSound.volume   = 0.6;
@@ -186,7 +187,7 @@ function primeSounds(){
     }catch(e){}
   });
 
-  setTimeout(()=>sounds.forEach(s=>{ s.muted=false; s.currentTime=0; }), 120);
+  setTimeout(()=>sounds.forEach(s=>{ s.muted=false; s.currentTime=0; }), 140);
 }
 
 // ---------------- GAME STATE ----------------
@@ -349,16 +350,18 @@ function clickCell(i){
     selecting=[];
     render();
 
+    // show full grid before win message
     if(winConditionMet()){
       winWithDrama();
       return;
     }
 
+    // if grid becomes full, lock deck + hide top card immediately
     if(gridFull()){
       deckLocked=true;
       deckHidden=true;
       lockSound.play().catch(()=>{});
-      render(); // hide top card NOW
+      render(); // hide deck card NOW
 
       if(winConditionMet()){
         winWithDrama();
@@ -381,7 +384,7 @@ function clickCell(i){
   // REMOVAL PHASE
   if(!deckLocked) return;
 
-  // reset calc if click blank
+  // reset selection if clicking a blank cleared square
   if(!grid[i]){
     selecting=[];
     render();
@@ -389,8 +392,9 @@ function clickCell(i){
   }
 
   const c = grid[i];
-  if(isFace(c)) return;
+  if(isFace(c)) return; // picture cards never removable
 
+  // single 10 removal
   if(numeric(c)===10){
     grid[i]=null;
     selecting=[];
@@ -399,6 +403,7 @@ function clickCell(i){
     return;
   }
 
+  // multi-select
   if(selecting.includes(i)){
     selecting = selecting.filter(x=>x!==i);
   } else {
@@ -422,7 +427,7 @@ function clickCell(i){
 deckTop.onclick = ()=>{
   if(gameOver) return;
   if(!deckLocked) return;
-  if(gridFull()) return;
+  if(gridFull()) return; // must have at least one empty square
 
   deckLocked=false;
   deckHidden=false;
@@ -434,11 +439,12 @@ deckTop.onclick = ()=>{
 
 // ---------------- NEW GAME ----------------
 newGame.onclick = ()=>{
-  // user gesture: prime silently, but only shuffle is audible
+  // user gesture: prime (silent), but ONLY play shuffle audibly
   primeSounds();
 
   const vals=["A",2,3,4,5,6,7,8,9,10,"J","Q","K"];
   const suits=["S","H","D","C"];
+
   deck=[];
   suits.forEach(s=>vals.forEach(v=>deck.push({v,s})));
   deck.sort(()=>Math.random()-0.5);
@@ -452,6 +458,7 @@ newGame.onclick = ()=>{
   showImage("darnitrules3.jpg");
   render();
 
+  // only shuffle sound at start
   try{ shuffleSound.currentTime=0; }catch(e){}
   shuffleSound.play().catch(()=>{});
 
@@ -508,14 +515,16 @@ function render(){
 render();
 </script>
 
-<!-- ✅ SERVICE WORKER REGISTER (exactly once, outside the game script) -->
-<script>
+<!-- ✅ SERVICE WORKER REGISTER (exactly once, NOT nested) -->
 <script>
 if ("serviceWorker" in navigator) {
-  window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/DARNIT-V2/sw.js")
-      .then(r => console.log("SW ok:", r.scope))
-      .catch(e => console.log("SW failed:", e));
+  window.addEventListener("load", async () => {
+    try {
+      const reg = await navigator.serviceWorker.register("/DARNIT-V2/sw.js");
+      console.log("SW ok:", reg.scope);
+    } catch (e) {
+      console.log("SW failed:", e);
+    }
   });
 }
 </script>
