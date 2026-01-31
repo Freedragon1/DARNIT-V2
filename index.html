@@ -7,6 +7,10 @@
 
 <link rel="manifest" href="manifest.json">
 
+<!-- Optional but recommended for iPad Home Screen -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+
 <style>
 body{
   font-family:Arial;
@@ -134,7 +138,8 @@ body{
   <div id="side">
     <img id="deckTop" alt="Deck">
     <div id="counter"></div>
-    <img id="floatImage" src="darnitlogo.jpg" alt="Info">
+    <!-- ✅ now uses your new icon -->
+    <img id="floatImage" src="icon-512.png" alt="Info">
     <button id="newGame">New Game</button>
   </div>
 </div>
@@ -160,9 +165,8 @@ const fanfareSound = new Audio("fanfare.mp3");
 const crowdSound   = new Audio("crowd.mp3");
 
 clearSound.volume = 0.9;
-warnSound.volume  = 0.9;
 lockSound.volume  = 0.4;
-loseSound.volume  = 0.75;
+loseSound.volume  = 0.7;
 shuffleSound.volume = 0.9;
 fanfareSound.volume = 0.9;
 crowdSound.volume   = 0.6;
@@ -174,8 +178,6 @@ function primeSounds(){
   soundsPrimed = true;
 
   const sounds=[clearSound,warnSound,lockSound,loseSound,shuffleSound,fanfareSound,crowdSound];
-
-  // mute everything while "touch-priming"
   sounds.forEach(s => { s.muted = true; s.currentTime = 0; });
 
   sounds.forEach(s => {
@@ -187,7 +189,7 @@ function primeSounds(){
     }catch(e){}
   });
 
-  setTimeout(()=>sounds.forEach(s=>{ s.muted=false; s.currentTime=0; }), 140);
+  setTimeout(()=>sounds.forEach(s=>{ s.muted=false; s.currentTime=0; }), 120);
 }
 
 // ---------------- GAME STATE ----------------
@@ -336,7 +338,7 @@ function checkImmediateFaceLoss(){
 function clickCell(i){
   if(gameOver) return;
 
-  // DEALING PHASE
+  // DEALING PHASE (deck unlocked/visible)
   if(!grid[i] && !deckHidden && !deckLocked){
     const card = deck.pop();
 
@@ -350,18 +352,16 @@ function clickCell(i){
     selecting=[];
     render();
 
-    // show full grid before win message
     if(winConditionMet()){
       winWithDrama();
       return;
     }
 
-    // if grid becomes full, lock deck + hide top card immediately
     if(gridFull()){
       deckLocked=true;
       deckHidden=true;
       lockSound.play().catch(()=>{});
-      render(); // hide deck card NOW
+      render(); // hide top card immediately
 
       if(winConditionMet()){
         winWithDrama();
@@ -381,10 +381,10 @@ function clickCell(i){
     return;
   }
 
-  // REMOVAL PHASE
+  // REMOVAL PHASE (deck locked)
   if(!deckLocked) return;
 
-  // reset selection if clicking a blank cleared square
+  // clicking a blank cleared square resets selection
   if(!grid[i]){
     selecting=[];
     render();
@@ -392,7 +392,7 @@ function clickCell(i){
   }
 
   const c = grid[i];
-  if(isFace(c)) return; // picture cards never removable
+  if(isFace(c)) return;
 
   // single 10 removal
   if(numeric(c)===10){
@@ -403,7 +403,7 @@ function clickCell(i){
     return;
   }
 
-  // multi-select
+  // multi-select removal
   if(selecting.includes(i)){
     selecting = selecting.filter(x=>x!==i);
   } else {
@@ -427,24 +427,22 @@ function clickCell(i){
 deckTop.onclick = ()=>{
   if(gameOver) return;
   if(!deckLocked) return;
-  if(gridFull()) return; // must have at least one empty square
+  if(gridFull()) return;
 
   deckLocked=false;
   deckHidden=false;
   selecting=[];
-  showImage("darnitlogo.jpg");
+  showImage("icon-512.png"); // ✅ changed from darnitlogo.jpg
   render();
   checkImmediateFaceLoss();
 };
 
 // ---------------- NEW GAME ----------------
 newGame.onclick = ()=>{
-  // user gesture: prime (silent), but ONLY play shuffle audibly
   primeSounds();
 
   const vals=["A",2,3,4,5,6,7,8,9,10,"J","Q","K"];
   const suits=["S","H","D","C"];
-
   deck=[];
   suits.forEach(s=>vals.forEach(v=>deck.push({v,s})));
   deck.sort(()=>Math.random()-0.5);
@@ -458,7 +456,6 @@ newGame.onclick = ()=>{
   showImage("darnitrules3.jpg");
   render();
 
-  // only shuffle sound at start
   try{ shuffleSound.currentTime=0; }catch(e){}
   shuffleSound.play().catch(()=>{});
 
@@ -515,14 +512,14 @@ function render(){
 render();
 </script>
 
-<!-- ✅ SERVICE WORKER REGISTER (exactly once, NOT nested) -->
+<!-- ✅ SERVICE WORKER REGISTER (exactly once) -->
 <script>
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", async () => {
-    try {
+    try{
       const reg = await navigator.serviceWorker.register("/DARNIT-V2/sw.js");
       console.log("SW ok:", reg.scope);
-    } catch (e) {
+    }catch(e){
       console.log("SW failed:", e);
     }
   });
